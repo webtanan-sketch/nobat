@@ -1,0 +1,1 @@
+CRM Farsi Windows installer build trigger v1.0.0
