@@ -13,21 +13,66 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Rebuild source payload
-        shell: powershell
-        run: |
-          $parts = 0..8 | ForEach-Object { Get-Content ("payload_v102_fixed/p{0:D2}.b64" -f $_) -Raw }
-          $b64 = $parts -join ""
-          if ($b64.Length -ne 44088) { throw "Payload length mismatch: $($b64.Length)" }
-          [IO.File]::WriteAllBytes("crm_payload_v102.zip", [Convert]::FromBase64String($b64))
-          Expand-Archive -Path crm_payload_v102.zip -DestinationPath src -Force
-          if (!(Test-Path "src/app.py")) { throw "Source payload extraction failed" }
-          if (!(Test-Path "src/installer.iss")) { throw "Installer script missing" }
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Verify and repair transferred payload
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib, base64, zipfile
+
+          root = Path('payload_v102_fixed')
+          parts = [root / f'p{i:02d}.b64' for i in range(9)]
+          texts = [p.read_text(encoding='utf-8').strip() for p in parts]
+
+          # p07 lost exactly one character during connector transfer. Recover it
+          # against the SHA-256 of the original local p07, rather than guessing.
+          p7_target = '6bc6d3fc90bb59439eae1d5a79ea9ad8706c9c09c9d3e41b8949a17cdf9bb1e6'
+          if hashlib.sha256(texts[7].encode()).hexdigest() != p7_target:
+              if len(texts[7]) != 4999:
+                  raise SystemExit(f'Unexpected p07 length: {len(texts[7])}')
+              alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+              broken = texts[7]
+              fixed = None
+              for pos in range(len(broken) + 1):
+                  left, right = broken[:pos], broken[pos:]
+                  for ch in alphabet:
+                      candidate = left + ch + right
+                      if hashlib.sha256(candidate.encode()).hexdigest() == p7_target:
+                          fixed = candidate
+                          print(f'Recovered missing base64 character at p07 offset {pos}')
+                          break
+                  if fixed is not None:
+                      break
+              if fixed is None:
+                  raise SystemExit('Could not recover transferred p07 payload')
+              texts[7] = fixed
+
+          b64 = ''.join(texts)
+          if len(b64) != 44088:
+              raise SystemExit(f'Payload length mismatch after repair: {len(b64)}')
+          target_b64_sha = '7db13d8f17ff0da4913b2589e70c8b4aa587ac5d04861e2ce3fc0b455a2fe356'
+          got_b64_sha = hashlib.sha256(b64.encode()).hexdigest()
+          if got_b64_sha != target_b64_sha:
+              raise SystemExit(f'Payload SHA mismatch: {got_b64_sha}')
+
+          data = base64.b64decode(b64, validate=True)
+          target_zip_sha = 'a4320107ca5b3d8225e9b082f397b78e3cb2f04709ed24ac2cacaf885b351b11'
+          got_zip_sha = hashlib.sha256(data).hexdigest()
+          if got_zip_sha != target_zip_sha:
+              raise SystemExit(f'ZIP SHA mismatch: {got_zip_sha}')
+          Path('crm_payload_v102.zip').write_bytes(data)
+          with zipfile.ZipFile('crm_payload_v102.zip') as z:
+              bad = z.testzip()
+              if bad:
+                  raise SystemExit(f'ZIP CRC failed: {bad}')
+              z.extractall('src')
+          if not Path('src/app.py').exists() or not Path('src/installer.iss').exists():
+              raise SystemExit('Source payload extraction failed')
+          print('Payload verified exactly against original SHA-256')
 
       - name: Install dependencies
         working-directory: src
