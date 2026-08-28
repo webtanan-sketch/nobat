@@ -16,7 +16,9 @@ jobs:
       - name: Rebuild source payload
         shell: powershell
         run: |
-          $b64 = (Get-Content payload_v102_stage/chunk00.b64 -Raw) + (Get-Content payload_v102_stage/chunk01.b64 -Raw)
+          $parts = 0..8 | ForEach-Object { Get-Content ("payload_v102_fixed/p{0:D2}.b64" -f $_) -Raw }
+          $b64 = $parts -join ""
+          if ($b64.Length -ne 44088) { throw "Payload length mismatch: $($b64.Length)" }
           [IO.File]::WriteAllBytes("crm_payload_v102.zip", [Convert]::FromBase64String($b64))
           Expand-Archive -Path crm_payload_v102.zip -DestinationPath src -Force
           if (!(Test-Path "src/app.py")) { throw "Source payload extraction failed" }
