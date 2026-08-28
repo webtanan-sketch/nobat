@@ -1,0 +1,66 @@
+name: Build CRM Windows Setup
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Rebuild source payload
+        shell: powershell
+        run: |
+          $b64 = (Get-Content payload_min/chunk00.b64 -Raw) + (Get-Content payload_min/chunk01.b64 -Raw) + (Get-Content payload_min/chunk02.b64 -Raw)
+          [IO.File]::WriteAllBytes("crm_payload_min.zip", [Convert]::FromBase64String($b64))
+          Expand-Archive -Path crm_payload_min.zip -DestinationPath src -Force
+          if (!(Test-Path "src/app.py")) { throw "Source payload extraction failed" }
+          if (!(Test-Path "src/installer.iss")) { throw "Installer script missing" }
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyInstaller
+        working-directory: src
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: Smoke compile
+        working-directory: src
+        run: python -m py_compile app.py version.py
+
+      - name: Build CRM executable
+        working-directory: src
+        run: pyinstaller --noconfirm --clean --windowed --name CRM --icon assets/crm.ico app.py
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Windows installer
+        working-directory: src
+        shell: cmd
+        run: '"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss'
+
+      - name: Verify installer
+        shell: powershell
+        run: |
+          $path = "src\dist-installer\CRM-Farsi-Setup-v1.0.0.exe"
+          if (!(Test-Path $path)) { throw "Installer not found" }
+          $file = Get-Item $path
+          if ($file.Length -lt 1000000) { throw "Installer is unexpectedly small" }
+          Write-Host "Installer:" $file.FullName
+          Write-Host "Size:" $file.Length
+
+      - name: Upload Setup
+        uses: actions/upload-artifact@v4
+        with:
+          name: CRM-Farsi-Setup-v1.0.0
+          path: src/dist-installer/CRM-Farsi-Setup-v1.0.0.exe
+          if-no-files-found: error
+          retention-days: 30
