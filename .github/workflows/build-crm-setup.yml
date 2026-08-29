@@ -37,23 +37,32 @@ jobs:
               zf.extractall("src")
           print("CRM v1.1.0 base verified:", digest)
 
-      - name: Apply v1.1.1 automatic server discovery
-        run: python patch_v111.py
-
-      - name: Verify updated source
+      - name: Apply and verify CRM v1.1.2 network fix
         shell: python
         run: |
           from pathlib import Path
+          import hashlib, zipfile
+          overlay = Path("payload_v112_overlay.zip")
+          digest = hashlib.sha256(overlay.read_bytes()).hexdigest()
+          expected = "2107b215bb6abc2e841a1ace90b02f6cf71fdc3451a66bf1bab7c8ce99e781c5"
+          if digest != expected:
+              raise SystemExit(f"Overlay SHA-256 mismatch: {digest}")
+          with zipfile.ZipFile(overlay) as zf:
+              bad = zf.testzip()
+              if bad:
+                  raise SystemExit(f"Overlay ZIP CRC failed: {bad}")
+              zf.extractall("src")
           app = Path("src/app.py").read_text(encoding="utf-8")
           net = Path("src/networking.py").read_text(encoding="utf-8")
           ver = Path("src/version.py").read_text(encoding="utf-8")
           ins = Path("src/installer.iss").read_text(encoding="utf-8")
-          assert 'APP_VERSION = "1.1.1"' in ver
-          assert 'اتصال خودکار به CRM' in app
-          assert 'def _scan_local_subnets' in net
-          assert 'def discover_servers(timeout=1.2, deep_scan=True)' in net
-          assert '#define MyAppVersion "1.1.1"' in ins
-          print("CRM v1.1.1 source verification passed")
+          assert 'APP_VERSION = "1.1.2"' in ver
+          assert 'def diagnose_server' in net
+          assert 'def _http_request' in net
+          assert 'profile=any remoteip=localsubnet' in ins
+          assert '#define MyAppVersion "1.1.2"' in ins
+          assert 'سرور پیدا شد ولی ارتباط اصلی بسته است' in app
+          print("CRM v1.1.2 source verified:", digest)
 
       - name: Install dependencies
         working-directory: src
@@ -62,6 +71,26 @@ jobs:
       - name: Smoke compile
         working-directory: src
         run: python -m py_compile app.py networking.py version.py
+
+      - name: Network smoke test
+        working-directory: src
+        shell: python
+        run: |
+          import time
+          from networking import LANServer, RemoteStore, ping_server, diagnose_server, SERVER_PORT
+          class Dummy:
+              schema_version = 3
+              def network_info(self): return {"app_version":"1.1.2","schema":3,"persons":0}
+              def has_users(self): return True
+          srv = LANServer(Dummy(), SERVER_PORT, "1.1.2")
+          srv.start(); time.sleep(.2)
+          try:
+              assert ping_server("127.0.0.1")
+              assert diagnose_server("127.0.0.1")[1] == "ok"
+              assert RemoteStore("127.0.0.1").has_users() is True
+              print("LAN server/RPC smoke test passed")
+          finally:
+              srv.stop()
 
       - name: Build CRM executable
         working-directory: src
@@ -78,7 +107,7 @@ jobs:
       - name: Verify installer
         shell: powershell
         run: |
-          $path = "src\dist-installer\CRM-Farsi-Setup-v1.1.1.exe"
+          $path = "src\dist-installer\CRM-Farsi-Setup-v1.1.2.exe"
           if (!(Test-Path $path)) { throw "Installer not found" }
           $file = Get-Item $path
           if ($file.Length -lt 1000000) { throw "Installer is unexpectedly small" }
@@ -88,7 +117,7 @@ jobs:
       - name: Upload Setup
         uses: actions/upload-artifact@v4
         with:
-          name: CRM-Farsi-Setup-v1.1.1
-          path: src/dist-installer/CRM-Farsi-Setup-v1.1.1.exe
+          name: CRM-Farsi-Setup-v1.1.2
+          path: src/dist-installer/CRM-Farsi-Setup-v1.1.2.exe
           if-no-files-found: error
           retention-days: 30
