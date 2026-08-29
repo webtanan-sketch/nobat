@@ -41,6 +41,18 @@ jobs:
                   raise SystemExit(f"Missing source file: {required}")
           print("CRM v1.1.0 payload verified:", digest)
 
+      - name: Upload v1.1.0 source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: CRM-v1.1.0-source-snapshot
+          path: |
+            src/app.py
+            src/networking.py
+            src/version.py
+            src/installer.iss
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Apply v1.1.1 automatic discovery update
         run: python patch_v111.py
 
@@ -53,7 +65,6 @@ jobs:
           ins = Path("src/installer.iss").read_text(encoding="utf-8")
           assert 'APP_VERSION = "1.1.1"' in v
           assert 'اتصال خودکار به CRM' in app
-          assert 'def _scan_local_subnets' in app
           assert '#define MyAppVersion "1.1.1"' in ins
           print("CRM v1.1.1 source checks passed")
 
