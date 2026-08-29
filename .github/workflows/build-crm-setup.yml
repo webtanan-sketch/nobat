@@ -80,7 +80,8 @@ jobs:
         working-directory: src
         shell: python
         run: |
-          import time
+          import os, sys, time
+          sys.path.insert(0, os.getcwd())
           from networking import LANServer, RemoteStore, ping_server, diagnose_server, SERVER_PORT
           class Dummy:
               schema_version = 3
