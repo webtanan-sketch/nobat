@@ -46,6 +46,9 @@ jobs:
       - name: Apply CRM v1.1.2 LAN reliability fix
         run: python patch_v112.py
 
+      - name: Normalize CRM v1.1.2 generated output
+        run: python repair_v112_output.py
+
       - name: Verify updated source
         shell: python
         run: |
