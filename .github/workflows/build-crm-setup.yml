@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Rebuild and verify CRM v1.1.0 payload
+      - name: Rebuild and verify CRM v1.1.0 base
         shell: python
         run: |
           from pathlib import Path
@@ -32,41 +32,42 @@ jobs:
           digest = hashlib.sha256(data).hexdigest()
           expected = "dd113344982d3eb6c1878bffed6d555d668472b4ea857b2c7c3f96407c829a46"
           if digest != expected:
-              raise SystemExit(f"Payload SHA-256 mismatch: {digest}")
+              raise SystemExit(f"Base payload SHA-256 mismatch: {digest}")
           Path("crm_payload_v110.zip").write_bytes(data)
           with zipfile.ZipFile("crm_payload_v110.zip") as zf:
               zf.extractall("src")
-          for required in ("src/app.py", "src/networking.py", "src/version.py", "src/installer.iss", "src/assets/crm.ico"):
-              if not Path(required).exists():
-                  raise SystemExit(f"Missing source file: {required}")
-          print("CRM v1.1.0 payload verified:", digest)
+          print("CRM v1.1.0 base verified:", digest)
 
-      - name: Upload v1.1.0 source snapshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: CRM-v1.1.0-source-snapshot
-          path: |
-            src/app.py
-            src/networking.py
-            src/version.py
-            src/installer.iss
-          if-no-files-found: error
-          retention-days: 3
-
-      - name: Apply v1.1.1 automatic discovery update
-        run: python patch_v111.py
-
-      - name: Verify updated source
+      - name: Apply and verify CRM v1.1.1 source overlay
         shell: python
         run: |
           from pathlib import Path
-          v = Path("src/version.py").read_text(encoding="utf-8")
+          import hashlib, zipfile
+
+          overlay = Path("payload_v111_overlay.zip")
+          digest = hashlib.sha256(overlay.read_bytes()).hexdigest()
+          expected = "9c281c210a46c4d05046dd200fd7039e5acd9c77dccf4872c7edc9865313a3f2"
+          if digest != expected:
+              raise SystemExit(f"Overlay SHA-256 mismatch: {digest}")
+          with zipfile.ZipFile(overlay) as zf:
+              bad = zf.testzip()
+              if bad:
+                  raise SystemExit(f"Overlay ZIP CRC failed: {bad}")
+              zf.extractall("src")
+          required = ["src/app.py", "src/networking.py", "src/version.py", "src/installer.iss", "src/assets/crm.ico"]
+          for path in required:
+              if not Path(path).exists():
+                  raise SystemExit(f"Missing source file: {path}")
           app = Path("src/app.py").read_text(encoding="utf-8")
+          net = Path("src/networking.py").read_text(encoding="utf-8")
+          ver = Path("src/version.py").read_text(encoding="utf-8")
           ins = Path("src/installer.iss").read_text(encoding="utf-8")
-          assert 'APP_VERSION = "1.1.1"' in v
+          assert 'APP_VERSION = "1.1.1"' in ver
           assert 'اتصال خودکار به CRM' in app
+          assert 'def _scan_local_subnets' in net
+          assert 'def discover_servers(timeout=1.2, deep_scan=True)' in net
           assert '#define MyAppVersion "1.1.1"' in ins
-          print("CRM v1.1.1 source checks passed")
+          print("CRM v1.1.1 overlay verified:", digest)
 
       - name: Install dependencies
         working-directory: src
