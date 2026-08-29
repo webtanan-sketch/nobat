@@ -23,7 +23,6 @@ jobs:
         run: |
           from pathlib import Path
           import base64, hashlib, zipfile
-
           parts = [Path(f"payload_v110/p{i:02d}.b64").read_text(encoding="utf-8").strip() for i in range(14)]
           encoded = "".join(parts)
           if len(encoded) != 54096:
@@ -38,26 +37,13 @@ jobs:
               zf.extractall("src")
           print("CRM v1.1.0 base verified:", digest)
 
-      - name: Apply and verify CRM v1.1.1 source overlay
+      - name: Apply v1.1.1 automatic server discovery
+        run: python patch_v111.py
+
+      - name: Verify updated source
         shell: python
         run: |
           from pathlib import Path
-          import hashlib, zipfile
-
-          overlay = Path("payload_v111_overlay.zip")
-          digest = hashlib.sha256(overlay.read_bytes()).hexdigest()
-          expected = "9c281c210a46c4d05046dd200fd7039e5acd9c77dccf4872c7edc9865313a3f2"
-          if digest != expected:
-              raise SystemExit(f"Overlay SHA-256 mismatch: {digest}")
-          with zipfile.ZipFile(overlay) as zf:
-              bad = zf.testzip()
-              if bad:
-                  raise SystemExit(f"Overlay ZIP CRC failed: {bad}")
-              zf.extractall("src")
-          required = ["src/app.py", "src/networking.py", "src/version.py", "src/installer.iss", "src/assets/crm.ico"]
-          for path in required:
-              if not Path(path).exists():
-                  raise SystemExit(f"Missing source file: {path}")
           app = Path("src/app.py").read_text(encoding="utf-8")
           net = Path("src/networking.py").read_text(encoding="utf-8")
           ver = Path("src/version.py").read_text(encoding="utf-8")
@@ -67,7 +53,7 @@ jobs:
           assert 'def _scan_local_subnets' in net
           assert 'def discover_servers(timeout=1.2, deep_scan=True)' in net
           assert '#define MyAppVersion "1.1.1"' in ins
-          print("CRM v1.1.1 overlay verified:", digest)
+          print("CRM v1.1.1 source verification passed")
 
       - name: Install dependencies
         working-directory: src
