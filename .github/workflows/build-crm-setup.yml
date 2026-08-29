@@ -37,22 +37,16 @@ jobs:
               zf.extractall("src")
           print("CRM v1.1.0 base verified:", digest)
 
-      - name: Apply and verify CRM v1.1.2 network fix
+      - name: Apply CRM v1.1.1 automatic discovery
+        run: python patch_v111.py
+
+      - name: Apply CRM v1.1.2 LAN reliability fix
+        run: python patch_v112.py
+
+      - name: Verify updated source
         shell: python
         run: |
           from pathlib import Path
-          import hashlib, zipfile
-          overlay = Path("payload_v112_overlay.zip")
-          digest = hashlib.sha256(overlay.read_bytes()).hexdigest()
-          with zipfile.ZipFile(overlay) as zf:
-              bad = zf.testzip()
-              if bad:
-                  raise SystemExit(f"Overlay ZIP CRC failed: {bad}")
-              names = set(zf.namelist())
-              required = {"app.py", "networking.py", "version.py", "installer.iss"}
-              if not required.issubset(names):
-                  raise SystemExit(f"Overlay missing files: {required - names}")
-              zf.extractall("src")
           app = Path("src/app.py").read_text(encoding="utf-8")
           net = Path("src/networking.py").read_text(encoding="utf-8")
           ver = Path("src/version.py").read_text(encoding="utf-8")
@@ -65,7 +59,8 @@ jobs:
           assert 'CRM Farsi Program' in ins
           assert '#define MyAppVersion "1.1.2"' in ins
           assert 'سرور پیدا شد ولی ارتباط اصلی بسته است' in app
-          print("CRM v1.1.2 overlay CRC/source verification passed:", digest)
+          assert 'سرور دیده شد ولی اتصال کامل نیست' in app
+          print("CRM v1.1.2 source verification passed")
 
       - name: Install dependencies
         working-directory: src
@@ -88,7 +83,8 @@ jobs:
           srv = LANServer(Dummy(), SERVER_PORT, "1.1.2")
           srv.start(); time.sleep(.2)
           try:
-              assert ping_server("127.0.0.1")
+              info = ping_server("127.0.0.1")
+              assert info and info.get("ok")
               assert diagnose_server("127.0.0.1")[1] == "ok"
               assert RemoteStore("127.0.0.1").has_users() is True
               print("LAN server/RPC smoke test passed")
