@@ -18,61 +18,28 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Verify and repair transferred payload
+      - name: Rebuild and verify CRM v1.1.0 payload
         shell: python
         run: |
           from pathlib import Path
-          import hashlib, base64, zipfile
+          import base64, hashlib, zipfile
 
-          root = Path('payload_v102_fixed')
-          parts = [root / f'p{i:02d}.b64' for i in range(9)]
-          texts = [p.read_text(encoding='utf-8').strip() for p in parts]
-
-          # p07 lost exactly one character during connector transfer. Recover it
-          # against the SHA-256 of the original local p07, rather than guessing.
-          p7_target = '6bc6d3fc90bb59439eae1d5a79ea9ad8706c9c09c9d3e41b8949a17cdf9bb1e6'
-          if hashlib.sha256(texts[7].encode()).hexdigest() != p7_target:
-              if len(texts[7]) != 4999:
-                  raise SystemExit(f'Unexpected p07 length: {len(texts[7])}')
-              alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-              broken = texts[7]
-              fixed = None
-              for pos in range(len(broken) + 1):
-                  left, right = broken[:pos], broken[pos:]
-                  for ch in alphabet:
-                      candidate = left + ch + right
-                      if hashlib.sha256(candidate.encode()).hexdigest() == p7_target:
-                          fixed = candidate
-                          print(f'Recovered missing base64 character at p07 offset {pos}')
-                          break
-                  if fixed is not None:
-                      break
-              if fixed is None:
-                  raise SystemExit('Could not recover transferred p07 payload')
-              texts[7] = fixed
-
-          b64 = ''.join(texts)
-          if len(b64) != 44088:
-              raise SystemExit(f'Payload length mismatch after repair: {len(b64)}')
-          target_b64_sha = '7db13d8f17ff0da4913b2589e70c8b4aa587ac5d04861e2ce3fc0b455a2fe356'
-          got_b64_sha = hashlib.sha256(b64.encode()).hexdigest()
-          if got_b64_sha != target_b64_sha:
-              raise SystemExit(f'Payload SHA mismatch: {got_b64_sha}')
-
-          data = base64.b64decode(b64, validate=True)
-          target_zip_sha = 'a4320107ca5b3d8225e9b082f397b78e3cb2f04709ed24ac2cacaf885b351b11'
-          got_zip_sha = hashlib.sha256(data).hexdigest()
-          if got_zip_sha != target_zip_sha:
-              raise SystemExit(f'ZIP SHA mismatch: {got_zip_sha}')
-          Path('crm_payload_v102.zip').write_bytes(data)
-          with zipfile.ZipFile('crm_payload_v102.zip') as z:
-              bad = z.testzip()
-              if bad:
-                  raise SystemExit(f'ZIP CRC failed: {bad}')
-              z.extractall('src')
-          if not Path('src/app.py').exists() or not Path('src/installer.iss').exists():
-              raise SystemExit('Source payload extraction failed')
-          print('Payload verified exactly against original SHA-256')
+          parts = [Path(f"payload_v110/p{i:02d}.b64").read_text(encoding="utf-8").strip() for i in range(14)]
+          encoded = "".join(parts)
+          if len(encoded) != 54096:
+              raise SystemExit(f"Payload length mismatch: {len(encoded)}")
+          data = base64.b64decode(encoded, validate=True)
+          digest = hashlib.sha256(data).hexdigest()
+          expected = "dd113344982d3eb6c1878bffed6d555d668472b4ea857b2c7c3f96407c829a46"
+          if digest != expected:
+              raise SystemExit(f"Payload SHA-256 mismatch: {digest}")
+          Path("crm_payload_v110.zip").write_bytes(data)
+          with zipfile.ZipFile("crm_payload_v110.zip") as zf:
+              zf.extractall("src")
+          for required in ("src/app.py", "src/networking.py", "src/version.py", "src/installer.iss", "src/assets/crm.ico"):
+              if not Path(required).exists():
+                  raise SystemExit(f"Missing source file: {required}")
+          print("CRM v1.1.0 payload verified:", digest)
 
       - name: Install dependencies
         working-directory: src
@@ -80,7 +47,7 @@ jobs:
 
       - name: Smoke compile
         working-directory: src
-        run: python -m py_compile app.py version.py
+        run: python -m py_compile app.py networking.py version.py
 
       - name: Build CRM executable
         working-directory: src
@@ -97,7 +64,7 @@ jobs:
       - name: Verify installer
         shell: powershell
         run: |
-          $path = "src\dist-installer\CRM-Farsi-Setup-v1.0.2.exe"
+          $path = "src\dist-installer\CRM-Farsi-Setup-v1.1.0.exe"
           if (!(Test-Path $path)) { throw "Installer not found" }
           $file = Get-Item $path
           if ($file.Length -lt 1000000) { throw "Installer is unexpectedly small" }
@@ -107,7 +74,7 @@ jobs:
       - name: Upload Setup
         uses: actions/upload-artifact@v4
         with:
-          name: CRM-Farsi-Setup-v1.0.2
-          path: src/dist-installer/CRM-Farsi-Setup-v1.0.2.exe
+          name: CRM-Farsi-Setup-v1.1.0
+          path: src/dist-installer/CRM-Farsi-Setup-v1.1.0.exe
           if-no-files-found: error
           retention-days: 30
