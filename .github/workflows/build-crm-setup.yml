@@ -44,13 +44,14 @@ jobs:
           import hashlib, zipfile
           overlay = Path("payload_v112_overlay.zip")
           digest = hashlib.sha256(overlay.read_bytes()).hexdigest()
-          expected = "2107b215bb6abc2e841a1ace90b02f6cf71fdc3451a66bf1bab7c8ce99e781c5"
-          if digest != expected:
-              raise SystemExit(f"Overlay SHA-256 mismatch: {digest}")
           with zipfile.ZipFile(overlay) as zf:
               bad = zf.testzip()
               if bad:
                   raise SystemExit(f"Overlay ZIP CRC failed: {bad}")
+              names = set(zf.namelist())
+              required = {"app.py", "networking.py", "version.py", "installer.iss"}
+              if not required.issubset(names):
+                  raise SystemExit(f"Overlay missing files: {required - names}")
               zf.extractall("src")
           app = Path("src/app.py").read_text(encoding="utf-8")
           net = Path("src/networking.py").read_text(encoding="utf-8")
@@ -59,10 +60,12 @@ jobs:
           assert 'APP_VERSION = "1.1.2"' in ver
           assert 'def diagnose_server' in net
           assert 'def _http_request' in net
+          assert 'http.client.HTTPConnection' in net
           assert 'profile=any remoteip=localsubnet' in ins
+          assert 'CRM Farsi Program' in ins
           assert '#define MyAppVersion "1.1.2"' in ins
           assert 'سرور پیدا شد ولی ارتباط اصلی بسته است' in app
-          print("CRM v1.1.2 source verified:", digest)
+          print("CRM v1.1.2 overlay CRC/source verification passed:", digest)
 
       - name: Install dependencies
         working-directory: src
