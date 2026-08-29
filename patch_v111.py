@@ -1,37 +1,19 @@
 from pathlib import Path
+import re
 
 root = Path('src')
-p = root / 'app.py'
-s = p.read_text(encoding='utf-8')
+app_path = root / 'app.py'
+net_path = root / 'networking.py'
 
-if 'import concurrent.futures\n' not in s:
-    s = s.replace('import csv\n', 'import csv\nimport concurrent.futures\nimport ipaddress\n', 1)
+network_path = net_path if net_path.exists() and 'def pair_server' in net_path.read_text(encoding='utf-8') else app_path
+ns = network_path.read_text(encoding='utf-8')
+if 'import concurrent.futures\n' not in ns:
+    if 'import csv\n' in ns:
+        ns = ns.replace('import csv\n', 'import csv\nimport concurrent.futures\nimport ipaddress\n', 1)
+    else:
+        ns = 'import concurrent.futures\nimport ipaddress\n' + ns
 
-old = '''def pair_server(ip,port=API_PORT,timeout=2):
-    try:
-        data=http_json(f"http://{ip}:{port}/pair",timeout=timeout)
-        if data.get("ok"): return {"url":f"http://{ip}:{int(data.get('port',port))}","token":data["token"],"server_name":data.get("server_name") or ip}
-    except Exception: pass
-    return None
-
-def discover_server(timeout=2.2):
-    sock=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); sock.setsockopt(socket.SOL_SOCKET,socket.SO_BROADCAST,1); sock.settimeout(.35)
-    try:
-        sock.bind(("",0)); sock.sendto(DISCOVERY_MAGIC,("255.255.255.255",DISCOVERY_PORT))
-        end=time.time()+timeout
-        while time.time()<end:
-            try:
-                raw,addr=sock.recvfrom(4096); d=json.loads(raw.decode("utf-8"))
-                if d.get("app")=="CRM-Farsi":
-                    cfg={"url":f"http://{addr[0]}:{int(d.get('port',API_PORT))}","token":d["token"],"server_name":d.get("server_name") or addr[0]}
-                    rs=RemoteStore(cfg)
-                    if rs.ping(): return cfg
-            except socket.timeout: continue
-            except Exception: continue
-    finally: sock.close()
-    return None
-'''
-new = '''def pair_server(ip,port=API_PORT,timeout=1.0):
+new_network = r'''def pair_server(ip,port=API_PORT,timeout=1.0):
     try:
         data=http_json(f"http://{ip}:{port}/pair",timeout=timeout)
         if data.get("ok"):
@@ -129,30 +111,14 @@ def discover_server(timeout=2.0, deep_scan=True):
     if found: return found
     return _scan_local_subnets() if deep_scan else None
 '''
-if old not in s:
-    raise SystemExit('v1.1.0 discovery block not found')
-s = s.replace(old, new, 1)
+pattern = re.compile(r'(?ms)^def pair_server\(.*?^def add_server_autostart\(\):')
+if not pattern.search(ns):
+    raise SystemExit(f'network discovery section not found in {network_path}')
+ns = pattern.sub(lambda m: new_network + '\ndef add_server_autostart():', ns, count=1)
+network_path.write_text(ns, encoding='utf-8')
 
-old2 = '''    def choose_client_mode(self):
-        found=discover_server(2.5)
-        if found:
-            remove_server_autostart(); save_json_file(network_mode_path(),{"mode":"client",**found}); self.store=RemoteStore(found); self.network_mode="client"; self.after_network_connected(); return
-        self.client_connection_screen()
-
-    def client_connection_screen(self):
-        self.clear(); box=tk.Frame(self,bg="#fff",bd=1,relief="solid"); box.place(relx=.5,rely=.5,anchor="center",width=520,height=390)
-        tk.Label(box,text="اتصال به سرور CRM",bg="#fff",font=("Tahoma",19,"bold")).pack(pady=(35,8)); tk.Label(box,text="سرور باید روشن باشد و هر دو کامپیوتر به یک شبکه وصل باشند.",bg="#fff",fg="#64748b",font=("Tahoma",9)).pack()
-        ttk.Button(box,text="🔎 پیدا کردن خودکار سرور",command=self.choose_client_mode).pack(pady=(28,8))
-        def manual():
-            ip=simpledialog.askstring("آدرس سرور","IP کامپیوتر سرور را وارد کنید؛ مثال: 192.168.1.10",parent=self)
-            if not ip:return
-            found=pair_server(ip.strip())
-            if not found:return messagebox.showwarning("پیدا نشد","CRM روی این آدرس پیدا نشد.",parent=self)
-            save_json_file(network_mode_path(),{"mode":"client",**found}); self.store=RemoteStore(found); self.network_mode="client"; self.after_network_connected()
-        ttk.Button(box,text="وارد کردن IP (فقط اگر لازم شد)",command=manual).pack(pady=6); ttk.Button(box,text="تغییر نوع این کامپیوتر",command=self.reset_network_mode).pack(pady=6)
-        tk.Label(box,text="ⓘ معمولاً فقط دکمه «پیدا کردن خودکار سرور» کافی است.",bg="#fff",fg="#64748b",font=("Tahoma",9)).pack(pady=20)
-'''
-new2 = '''    def choose_client_mode(self):
+s = app_path.read_text(encoding='utf-8')
+new_ui = r'''    def choose_client_mode(self):
         self.client_connection_screen(auto_start=True)
 
     def client_connection_screen(self, auto_start=True):
@@ -163,10 +129,8 @@ new2 = '''    def choose_client_mode(self):
         status=tk.Label(box,text="● آماده جستجو",bg="#fff",fg="#64748b",font=("Tahoma",11,"bold")); status.pack(pady=(34,5))
         detail=tk.Label(box,text="",bg="#fff",fg="#64748b",font=("Tahoma",9),wraplength=440,justify="center"); detail.pack(pady=4)
         actions=tk.Frame(box,bg="#fff"); actions.pack(pady=(18,4))
-        connect_btn=ttk.Button(actions,text="اتصال",state="disabled")
-        connect_btn.pack(side="right",padx=5)
-        retry_btn=ttk.Button(actions,text="جستجوی دوباره")
-        retry_btn.pack(side="right",padx=5)
+        connect_btn=ttk.Button(actions,text="اتصال",state="disabled"); connect_btn.pack(side="right",padx=5)
+        retry_btn=ttk.Button(actions,text="جستجوی دوباره"); retry_btn.pack(side="right",padx=5)
 
         def connect_found():
             found=self._found_server
@@ -221,14 +185,14 @@ new2 = '''    def choose_client_mode(self):
         tk.Label(box,text="ⓘ راهنما: روی کامپیوتر اصلی CRM را در حالت «سرور» باز نگه دارید؛ بقیه سیستم‌ها خودکار آن را پیدا می‌کنند.",bg="#fff",fg="#64748b",font=("Tahoma",8),wraplength=470).pack(pady=(6,0))
         if auto_start:self.after(250,search)
 '''
-if old2 not in s:
-    raise SystemExit('v1.1.0 client screen block not found')
-s = s.replace(old2, new2, 1)
+ui_pattern = re.compile(r'(?ms)^    def choose_client_mode\(self\):.*?^    def reset_network_mode\(self\):')
+if not ui_pattern.search(s):
+    raise SystemExit('client connection UI section not found')
+s = ui_pattern.sub(lambda m: new_ui + '\n    def reset_network_mode(self):', s, count=1)
 s = s.replace('برای سیستم مدیر یا پرسنل. برنامه سرور را داخل همین شبکه به‌صورت خودکار پیدا می‌کند؛ نیاز به IP و تنظیم فنی نیست.', 'برای سیستم مدیر یا پرسنل. فقط این گزینه را بزنید؛ برنامه سرور را خودش پیدا می‌کند و هیچ IP یا تنظیم فنی لازم نیست.', 1)
-p.write_text(s, encoding='utf-8')
+app_path.write_text(s, encoding='utf-8')
 
 (root / 'version.py').write_text('APP_NAME = "CRM فارسی"\nAPP_VERSION = "1.1.1"\nDB_SCHEMA_VERSION = 3\n', encoding='utf-8')
-
 iss = root / 'installer.iss'
 t = iss.read_text(encoding='utf-8').replace('#define MyAppVersion "1.1.0"', '#define MyAppVersion "1.1.1"')
 if 'CloseApplications=yes' not in t:
@@ -237,5 +201,4 @@ if '[Code]' not in t:
     code = '''\n[Code]\nfunction PrepareToInstall(var NeedsRestart: Boolean): String;\nvar\n  ResultCode: Integer;\nbegin\n  Exec(ExpandConstant('{sys}\\\\taskkill.exe'), '/F /IM CRM.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);\n  Result := '';\nend;\n\n'''
     t = t.replace('\n[Dirs]\n', code + '[Dirs]\n', 1)
 iss.write_text(t, encoding='utf-8')
-
-print('CRM v1.1.1 patch applied')
+print('CRM v1.1.1 patch applied to', network_path)
