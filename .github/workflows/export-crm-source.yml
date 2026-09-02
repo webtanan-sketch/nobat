@@ -1,0 +1,42 @@
+name: Export CRM Reconstructed Source
+
+on:
+  push:
+    branches: [ "main" ]
+    paths: [ ".github/workflows/export-crm-source.yml" ]
+
+jobs:
+  export:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Rebuild v1.1.0 base
+        shell: python
+        run: |
+          from pathlib import Path
+          import base64, hashlib, zipfile
+          parts=[Path(f"payload_v110/p{i:02d}.b64").read_text(encoding="utf-8").strip() for i in range(14)]
+          data=base64.b64decode("".join(parts), validate=True)
+          assert hashlib.sha256(data).hexdigest()=="dd113344982d3eb6c1878bffed6d555d668472b4ea857b2c7c3f96407c829a46"
+          Path("base.zip").write_bytes(data)
+          with zipfile.ZipFile("base.zip") as zf: zf.extractall("src")
+      - name: Apply v1.1.1
+        run: python patch_v111.py
+      - name: Prepare v1.1.2
+        run: python prepare_patch_v112.py
+      - name: Apply v1.1.2
+        run: python patch_v112.py
+      - name: Normalize v1.1.2
+        run: python repair_v112_output.py
+      - name: Compile check
+        working-directory: src
+        run: python -m py_compile app.py networking.py version.py
+      - name: Upload reconstructed source
+        uses: actions/upload-artifact@v4
+        with:
+          name: CRM-Reconstructed-Source-v1.1.2
+          path: src/**
+          retention-days: 7
