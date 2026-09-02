@@ -69,7 +69,8 @@ jobs:
           assert 'AppId={{E60E2F54-7DE1-4EAD-BFBE-984F53C18F7A}' in i
           assert '[InstallDelete]' in i
           assert 'CRM-Farsi' in i
-          assert 'pre_upgrade_v3_to_v4_' in a
+          assert 'def _pre_upgrade_backup_if_needed' in a
+          assert 'pre_upgrade_v{old}_to_v{DB_SCHEMA_VERSION}_{stamp}.db' in a
           assert 'دفترچه تصویری' in a
           assert 'ACTIVITY_PRESETS' in a
           assert 'read_people_excel' in a
