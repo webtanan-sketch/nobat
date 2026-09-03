@@ -39,4 +39,4 @@ test = test.replace('srv=LANServer(st,SERVER_PORT,"1.3.1")', 'srv=LANServer(st,S
 test = test.replace('print("CRM v1.3.1 SELFTEST PASSED")', 'print("CRM v1.3.2 SELFTEST PASSED")')
 TEST.write_text(test, encoding="utf-8")
 
-print("Applied CRM فارسی v1.3.2 identity/shortcut hotfix")
+print("Applied CRM Farsi v1.3.2 identity/shortcut hotfix")
